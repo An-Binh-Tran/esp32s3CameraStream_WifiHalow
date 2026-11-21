@@ -16,3 +16,4 @@ dependencies:
   #   public: true
   espressif/esp32-camera: '*'
   espressif/mdns: '*'
+  morsemicro/halow: ==2.11.2-esp32-2

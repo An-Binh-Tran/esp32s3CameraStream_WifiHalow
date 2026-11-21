@@ -1,6 +1,6 @@
 dependencies:
   espressif/esp32-camera:
-    component_hash: bc9c8a6b51df777a014fa295825b3de5069bc0300c317acff20c97cf4a10ac7d
+    component_hash: f14a6a9a5c223e49ea7ce6387a2124fc4f8a2239d5f6a1de1850217244f774fe
     dependencies:
     - name: espressif/esp_jpeg
       registry_url: https://components.espressif.com
@@ -12,9 +12,9 @@ dependencies:
     source:
       registry_url: https://components.espressif.com/
       type: service
-    version: 2.1.7
+    version: 2.1.9
   espressif/esp_jpeg:
-    component_hash: defb83669293cbf86d0fa86b475ba5517aceed04ed70db435388c151ab37b5d7
+    component_hash: 47d19eac5f76fac06798c04f4d2579c7ab26fd33280ed10f43d8895175376bdf
     dependencies:
     - name: idf
       require: private
@@ -22,9 +22,9 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 1.3.1
+    version: 1.3.2
   espressif/mdns:
-    component_hash: 8bcf12e37c58c1d584aef32a02b92548124c7a3a9fcf548d3235c844a035e0f0
+    component_hash: 2fa43caa78cc170842255bc7bf71f306bc815cae12e9496bfb12372423019ac7
     dependencies:
     - name: idf
       require: private
@@ -32,15 +32,26 @@ dependencies:
     source:
       registry_url: https://components.espressif.com/
       type: service
-    version: 1.11.1
+    version: 1.15.1
   idf:
     source:
       type: idf
-    version: 6.0.1
+    version: 5.4.4
+  morsemicro/halow:
+    component_hash: a84e6831f1067d874ed55eb8a9e7bffb469539b706f1a7197fc4eb2cf8680c8a
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.4.4,<6.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 2.11.2-esp32-2
 direct_dependencies:
 - espressif/esp32-camera
 - espressif/mdns
 - idf
-manifest_hash: ec25c033e98e507ed19d645e8fdcf2986d9f8c4f8183b6c3136bade951a1768d
+- morsemicro/halow
+manifest_hash: 1d0e6ed00f87c3760fbbb7e91ca99f024f7bbb15476720b08b79f9a80338b8ef
 target: esp32s3
-version: 3.0.0
+version: 2.0.0

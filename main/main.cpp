@@ -73,8 +73,8 @@ extern "C" void app_main(void)
     init_led();
     gpio_set_level(LED_PIN, 1);
 
-    init_stim_pins();
-    setStimPinsToIdle();
+    // init_stim_pins();
+    // setStimPinsToIdle();
 
     key_press_indi();
 
@@ -91,34 +91,30 @@ extern "C" void app_main(void)
     // Always bring up just enough WiFi radio for ESP-NOW, so stim commands
     // can be received whether or not the camera is present.
     initWifiRadio();
-    initESPNow();
+    // initESPNow();
+initWifiHaLow();
 
     if (cameraOK) {
         ESP_LOGI(TAG, "Camera initialized successfully");
-        // Camera is present: upgrade to a full SoftAP + mDNS + HTTP server
-        // so the video stream is reachable.
-        initWifiAP();
         initServer();
     } else {
-        // No camera: skip the AP/mDNS/HTTP server entirely and just run
-        // the stim task below, fed over ESP-NOW.
-        ESP_LOGW(TAG, "Camera unavailable; running stim-only (no AP/HTTP server)");
+        ESP_LOGW(TAG, "Camera unavailable; HaLow is active, HTTP server skipped");
     }
 
-    BaseType_t taskResult = xTaskCreatePinnedToCore(
-        stimTask,          // Task function
-        "StimTask",        // Name shown in debugging/task listings
-        4096,              // Stack size in bytes for ESP-IDF
-        nullptr,           // No task parameter
-        5,                 // Priority
-        &stimTaskHandle,   // Store task handle
-        1                  // Pin to Core 1
-    );
+    // BaseType_t taskResult = xTaskCreatePinnedToCore(
+    //     stimTask,          // Task function
+    //     "StimTask",        // Name shown in debugging/task listings
+    //     4096,              // Stack size in bytes for ESP-IDF
+    //     nullptr,           // No task parameter
+    //     5,                 // Priority
+    //     &stimTaskHandle,   // Store task handle
+    //     1                  // Pin to Core 1
+    // );
 
-    if (taskResult != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create StimTask");
-        return;
-    }
+    // if (taskResult != pdPASS) {
+    //     ESP_LOGE(TAG, "Failed to create StimTask");
+    //     return;
+    // }
 
     ESP_LOGI(TAG, "StimTask created and pinned to Core 1"); 
 }

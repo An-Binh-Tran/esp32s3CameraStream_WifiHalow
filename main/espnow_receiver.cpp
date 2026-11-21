@@ -91,7 +91,7 @@ static void discoveryTask(void *pvParameters) {
     }
 }
 
-void onDataSent(const esp_now_send_info_t *tx_info, esp_now_send_status_t status) {
+void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
     ESP_LOGI(TAG, "ESP-NOW TX %s", status == ESP_NOW_SEND_SUCCESS ? "ACK" : "FAIL");
 }
 

@@ -1,10 +1,8 @@
 #pragma once
 
-// Brings up just the WiFi radio (NVS, netif, event loop, STA mode, fixed
-// channel) - enough for ESP-NOW to send/receive. No AP broadcast, no mDNS.
-// Call this once at boot, before initESPNow().
-void initWifiRadio(void);
+// Wi-Fi HaLow router credentials (must match your HaLow router)
+#define HALOW_SSID "halowlink2-8fd3"
+#define HALOW_PASS "dish36plant2dimly"
 
-// Upgrades the radio to APSTA and starts broadcasting the SoftAP + mDNS.
-// Requires initWifiRadio() to have already run. Call before initServer().
-void initWifiAP(void);
+void initWifiRadio(void);
+void initWifiHaLow(void);

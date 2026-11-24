@@ -68,6 +68,7 @@ static esp_err_t handle_stream(httpd_req_t *req)
 
     // Buffer used to build the small text header sent before each JPEG frame.
     char head[128];
+    uint32_t frame_count = 0;
 
     // Keep looping - grab a frame, send it, repeat - for as long as the
     // camera is working. Each iteration sends one complete video frame.
@@ -80,6 +81,11 @@ static esp_err_t handle_stream(httpd_req_t *req)
             // few milliseconds and try again instead of failing outright.
             vTaskDelay(pdMS_TO_TICKS(5));
             continue;
+        }
+
+        if (++frame_count % 10 == 0) {
+            ESP_LOGI(TAG, "Frame #%lu: %u bytes",
+                     (unsigned long)frame_count, (unsigned int)fb->len);
         }
 
         // Build the small text header that goes before every JPEG frame,
@@ -154,7 +160,6 @@ void initServer(void)
     config.core_id = 0;
     // Standard HTTP port, so it's reachable as http://<ip or bugcam.local>/
     config.server_port = 80;
-
     esp_err_t ret = httpd_start(&server, &config);
 
     if (ret != ESP_OK) {
@@ -246,7 +251,7 @@ bool initCamera() {
   // pixels), since that's what we want to stream over HTTP.
   config.pixel_format = PIXFORMAT_JPEG;
   // QVGA = 320x240 - kept small to keep frames quick to capture/send.
-  config.frame_size   = FRAMESIZE_QVGA;
+  config.frame_size   = FRAMESIZE_QVGA; //change to QQVGA
   // Always hand us the newest available frame rather than queuing old ones,
   // so the stream doesn't fall behind real time.
   config.grab_mode    = CAMERA_GRAB_LATEST;
@@ -254,9 +259,9 @@ bool initCamera() {
   config.fb_location  = CAMERA_FB_IN_PSRAM;
   // Lower number = higher JPEG quality (and bigger file size). 25 favours
   // smaller/faster frames over image quality.
-  config.jpeg_quality = 25;
+  config.jpeg_quality = 25; //Change this to 35
   // Only keep one frame buffer in memory at a time.
-  config.fb_count     = 1;
+  config.fb_count     = 1; //change this later 
 
   // Actually initialise the camera driver with the settings above.
   esp_err_t err = esp_camera_init(&config);
@@ -273,6 +278,7 @@ bool initCamera() {
   sensor_t *s = esp_camera_sensor_get();
   if (s && s->id.PID == OV3660_PID) {
     s->set_vflip(s, 1);       // flip image vertically (sensor is mounted upside down)
+    s->set_framesize(s, FRAMESIZE_QQVGA); // output 160x120 into the 15 KB buffer
     s->set_brightness(s, 1);  // slightly brighter
     s->set_saturation(s, -2); // slightly less saturated colours
   }

@@ -10,6 +10,10 @@
 #include <cstring>  // strlen
 #include <cstdint>  // uint8_t
 
+#include <cstdlib>      // malloc, free
+#include <sys/socket.h> // setsockopt
+#include <netinet/tcp.h>// TCP_NODELAY
+
 // Tracks whether the camera started up successfully. The /stream handler
 // checks this before trying to grab frames, so a camera failure doesn't
 // crash the server - it just makes /stream reply with an error instead.
@@ -53,90 +57,98 @@ static esp_err_t handle_root(httpd_req_t *req)
 static esp_err_t handle_stream(httpd_req_t *req)
 {
     if (!cameraOK) {
-        // Camera never started, so there's nothing to stream.
-        // Reply with 503 (Service Unavailable) and a plain text message.
         httpd_resp_set_status(req, "503 Service Unavailable");
         httpd_resp_set_type(req, "text/plain");
         const char *msg = "Camera Not Available";
         return httpd_resp_send(req, msg, strlen(msg));
     }
 
-    // Tell the client to expect a "multipart" response: a stream of parts,
-    // each separated by the boundary string "frame". This is the standard
-    // way browsers recognise an MJPEG stream.
-    httpd_resp_set_type(req, "multipart/x-mixed-replace; boundary=frame");
+    // Safe to enable TCP_NODELAY now because we send one raw write per frame
+    // (no tiny chunked-encoding wrapper writes).
+    int sockfd = httpd_req_to_sockfd(req);
+    int nodelay = 1;
+    setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 
-    // Buffer used to build the small text header sent before each JPEG frame.
-    char head[128];
+    const size_t send_buf_size = 16384;
+    char *send_buf = (char *)malloc(send_buf_size);
+    if (!send_buf) {
+        ESP_LOGE(TAG, "Failed to allocate stream buffer");
+        return ESP_ERR_NO_MEM;
+    }
+
+    // Send raw HTTP response header once (no Transfer-Encoding: chunked)
+    const char *http_hdr =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: multipart/x-mixed-replace; boundary=frame\r\n"
+        "Cache-Control: no-cache\r\n"
+        "Connection: close\r\n\r\n";
+
+    int hdr_len = strlen(http_hdr);
+    int hdr_sent = 0;
+    while (hdr_sent < hdr_len) {
+        int ret = httpd_send(req, http_hdr + hdr_sent, hdr_len - hdr_sent);
+        if (ret <= 0) {
+            free(send_buf);
+            return ESP_FAIL;
+        }
+        hdr_sent += ret;
+    }
+
     uint32_t frame_count = 0;
 
-    // Keep looping - grab a frame, send it, repeat - for as long as the
-    // camera is working. Each iteration sends one complete video frame.
     while (cameraOK) {
-        // Ask the camera driver for the latest captured frame (JPEG bytes
-        // already encoded, living in PSRAM).
         camera_fb_t *fb = esp_camera_fb_get();
         if (!fb) {
-            // No frame ready yet (camera busy/still warming up) - wait a
-            // few milliseconds and try again instead of failing outright.
             vTaskDelay(pdMS_TO_TICKS(5));
             continue;
         }
 
+        size_t fb_len = fb->len;
+
         if (++frame_count % 10 == 0) {
             ESP_LOGI(TAG, "Frame #%lu: %u bytes",
-                     (unsigned long)frame_count, (unsigned int)fb->len);
+                     (unsigned long)frame_count, (unsigned int)fb_len);
         }
 
-        // Build the small text header that goes before every JPEG frame,
-        // e.g.:
-        //   --frame
-        //   Content-Type: image/jpeg
-        //   Content-Length: 12345
-        //   (blank line)
-        int len = snprintf(head, sizeof(head),
-                           "--frame\r\n"
-                           "Content-Type: image/jpeg\r\n"
-                           "Content-Length: %u\r\n\r\n",
-                           (unsigned int)fb->len);
+        int head_len = snprintf(send_buf, 128,
+                                "--frame\r\n"
+                                "Content-Type: image/jpeg\r\n"
+                                "Content-Length: %u\r\n\r\n",
+                                (unsigned int)fb_len);
 
-        // Send that header as one chunk of the ongoing HTTP response.
-        esp_err_t res = httpd_resp_send_chunk(req, head, len);
-        if (res != ESP_OK) {
-            // Send failed - almost always means the client (browser) has
-            // closed the connection. Return the frame buffer and stop.
+        if (head_len < 0 || (size_t)head_len + fb_len + 2 > send_buf_size) {
             esp_camera_fb_return(fb);
-            ESP_LOGW(TAG, "Client disconnected while sending header");
-            break;
+            continue;
         }
 
-        // Send the actual JPEG image bytes as the next chunk.
-        res = httpd_resp_send_chunk(req, (const char *)fb->buf, fb->len);
-        // We're done with this frame buffer now - give it back to the
-        // camera driver so it can be reused for the next capture.
+        memcpy(send_buf + head_len, fb->buf, fb_len);
         esp_camera_fb_return(fb);
-        if (res != ESP_OK) {
-            ESP_LOGW(TAG, "Client disconnected while sending frame");
-            break;
+
+        send_buf[head_len + fb_len]     = '\r';
+        send_buf[head_len + fb_len + 1] = '\n';
+
+       int total_len = head_len + fb_len + 2;
+        int sent = 0;
+        while (sent < total_len) {
+            int chunk = total_len - sent;
+            if (chunk > 1380) chunk = 1380;
+            int ret = httpd_send(req, send_buf + sent, chunk);
+            if (ret <= 0) {
+                ESP_LOGW(TAG, "Client disconnected while sending frame");
+                free(send_buf);
+                return ESP_FAIL;
+            }
+            sent += ret;
+            if (sent < total_len) {
+                vTaskDelay(pdMS_TO_TICKS(15));
+            }
         }
 
-        // Send a trailing blank line to close off this frame's part
-        // before the next "--frame" boundary begins.
-        res = httpd_resp_send_chunk(req, "\r\n", 2);
-        if (res != ESP_OK) {
-            ESP_LOGW(TAG, "Client disconnected while sending CRLF");
-            break;
-        }
-
-        // Wait just long enough to roughly hit our target FRAMERATE before
-        // grabbing the next frame (e.g. 10 FPS -> ~100ms between frames).
-        vTaskDelay(pdMS_TO_TICKS(1000 / FRAMERATE));
+        vTaskDelay(pdMS_TO_TICKS(85));
     }
 
-    // Client disconnected or camera stopped working - send a zero-length
-    // chunk to properly close out the chunked HTTP response.
-    httpd_resp_send_chunk(req, NULL, 0);
-    return ESP_OK;
+    free(send_buf);
+    return ESP_FAIL;
 }
 
 // ------------- SERVER INIT -------------
@@ -259,7 +271,7 @@ bool initCamera() {
   config.fb_location  = CAMERA_FB_IN_PSRAM;
   // Lower number = higher JPEG quality (and bigger file size). 25 favours
   // smaller/faster frames over image quality.
-  config.jpeg_quality = 25; //Change this to 35
+  config.jpeg_quality = 30; //Change this to 35
   // Only keep one frame buffer in memory at a time.
   config.fb_count     = 1; //change this later 
 
@@ -278,7 +290,7 @@ bool initCamera() {
   sensor_t *s = esp_camera_sensor_get();
   if (s && s->id.PID == OV3660_PID) {
     s->set_vflip(s, 1);       // flip image vertically (sensor is mounted upside down)
-    s->set_framesize(s, FRAMESIZE_QQVGA); // output 160x120 into the 15 KB buffer
+    // s->set_framesize(s, FRAMESIZE_QQVGA); // output 160x120 into the 15 KB buffer
     s->set_brightness(s, 1);  // slightly brighter
     s->set_saturation(s, -2); // slightly less saturated colours
   }
